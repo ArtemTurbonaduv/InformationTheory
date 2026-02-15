@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Шифрование текста</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+}
+body {
+    background: linear-gradient(135deg,#667eea,#764ba2);
+    margin:0;
+    padding:30px;
+}
+.container {
+    max-width:1100px;
+    margin:auto;
+    background:#fff;
+    border-radius:20px;
+    padding:30px;
+    box-shadow:0 20px 60px rgba(0,0,0,.3);
+}
+h1 {
+    margin-top:0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+.section {
+    background:#f8f9ff;
+    border-radius:15px;
+    padding:20px;
+    margin-bottom:25px;
+}
+label {
+    display:block;
+    margin-top:10px;
+    font-weight:600;
+    color:#4a5568;
+}
+textarea, input, select {
+    width:100%;
+    padding:12px;
+    margin-top:5px;
+    border-radius:10px;
+    border:2px solid #e2e8f0;
+    font-size:15px;
+}
+textarea {
+    min-height:150px;
+    resize:vertical;
+    font-family:monospace;
+}
+.buttons {
+    display:flex;
+    gap:15px;
+    margin-top:20px;
+    flex-wrap:wrap;
+}
+button {
+    flex:1;
+    padding:14px;
+    border:none;
+    border-radius:12px;
+    font-size:16px;
+    font-weight:600;
+    cursor:pointer;
+    color:#fff;
+}
+.encrypt { background:#667eea; }
+.decrypt { background:#48bb78; }
+.clear   { background:#a0aec0; }
+.file    { background:#4299e1; }
+
+.output {
+    margin-top:40px;
+}
+.status {
+    margin-top:10px;
+    padding:10px;
+    border-radius:8px;
+    background:#e6fffa;
+    color:#234e52;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>
+🔐 Шифрование текста
+<span style="font-size:14px;color:#718096;">Решётка | Виженер</span>
+</h1>
+
+<div class="section">
+<label>Алгоритм</label>
+<select id="algo">
+    <option value="grille">Поворачивающаяся решётка</option>
+    <option value="vigenere">Виженер (русский)</option>
+</select>
+
+<label>Ключ</label>
+<input id="key" disabled placeholder="Ключ не требуется">
+</div>
+
+<div class="section">
+<label>Входной текст</label>
+<textarea id="input"></textarea>
+
+<input type="file" id="fileInput" accept=".txt" hidden>
+<button class="file" onclick="fileInput.click()">
+    📂 Загрузить из файла
+</button>
+
+</div>
+
+<div class="buttons">
+<button class="encrypt" onclick="encrypt()">🔒 Зашифровать</button>
+<button class="decrypt" onclick="decrypt()">🔓 Расшифровать</button>
+<button class="clear" onclick="clearAll()">🧹 Очистить</button>
+</div>
+
+<div class="output">
+<label>Результат</label>
+<textarea id="output" readonly></textarea>
+
+<div class="buttons">
+<button class="file" onclick="saveResult()">💾 Сохранить результат</button>
+</div>
+
+<div id="status" class="status">✅ Готово</div>
+</div>
+
+</div>
+
+<script>
+// ===== РЕШЁТКА =====
+function randomChar() {
+    return String.fromCharCode(65 + Math.floor(Math.random() * 26));
+}
+
+function grilleHoles(N) {
+    const used = Array.from({ length: N }, () => Array(N).fill(false));
+    const holes = [];
+    const center = Math.floor(N / 2);
+
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            if (N % 2 === 1 && i === center && j === center) continue;
+            if (used[i][j]) continue;
+
+            const orbit = [
+                [i, j],
+                [j, N - 1 - i],
+                [N - 1 - i, N - 1 - j],
+                [N - 1 - j, i]
+            ];
+
+            orbit.forEach(([x, y]) => used[x][y] = true);
+            holes.push([i, j]);
+        }
+    }
+    return holes;
+}
+
+function grilleEncrypt(text) {
+    text = text.toUpperCase();
+    const letters = text.match(/[A-Z]/g) || [];
+    if (!letters.length) return "";
+
+    let N = Math.ceil(Math.sqrt(letters.length));
+    const center = Math.floor(N / 2);
+
+    while (letters.length < N * N)
+        letters.push(randomChar());
+
+    const grid = Array.from({ length: N }, () => Array(N).fill(''));
+    const holes = grilleHoles(N);
+
+    let k = 0;
+    for (let r = 0; r < 4; r++) {
+        for (let [x, y] of holes) {
+            let i = x, j = y;
+            for (let t = 0; t < r; t++)
+                [i, j] = [j, N - 1 - i];
+            grid[i][j] = letters[k++];
+        }
+    }
+
+    if (N % 2 === 1)
+        grid[center][center] = letters[k++];
+
+    return grid.flat().join('');
+}
+
+function grilleDecrypt(text) {
+    text = text.toUpperCase();
+    const letters = text.match(/[A-Z]/g) || [];
+    const N = Math.sqrt(letters.length);
+    const center = Math.floor(N / 2);
+
+    const grid = [];
+    let p = 0;
+
+    for (let i = 0; i < N; i++) {
+        grid[i] = [];
+        for (let j = 0; j < N; j++)
+            grid[i][j] = letters[p++];
+    }
+
+    const holes = grilleHoles(N);
+    let result = "";
+
+    for (let r = 0; r < 4; r++) {
+        for (let [x, y] of holes) {
+            let i = x, j = y;
+            for (let t = 0; t < r; t++)
+                [i, j] = [j, N - 1 - i];
+            result += grid[i][j];
+        }
+    }
+
+    if (N % 2 === 1)
+        result += grid[center][center];
+
+    return result;
+}
+
+// ===== ВИЖЕНЕР =====
+const RUS = /[А-ЯЁ]/;
+const alpha = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
+
+function vigenere(text, key, enc) {
+    text = text.toUpperCase();
+    key = key
+        .toUpperCase()
+        .split('')
+        .filter(c => alpha.includes(c))
+        .join('');
+
+    if (key.length === 0) {
+        alert("Ключ должен содержать русские буквы");
+        return "";
+    }
+
+    let k = 0;
+    let res = '';
+
+    for (let c of text) {
+        if (!RUS.test(c)) {
+            res += c;
+            continue;
+        }
+
+        let i = alpha.indexOf(c);
+        let s = alpha.indexOf(key[k % key.length]);
+        let x = enc
+            ? (i + s) % 33
+            : (i - s + 33) % 33;
+
+        res += alpha[x];
+        k++;
+    }
+    return res;
+}
+
+
+// ===== UI =====
+const algo = document.getElementById("algo");
+const key = document.getElementById("key");
+const input = document.getElementById("input");
+const output = document.getElementById("output");
+const status = document.getElementById("status");
+const fileInput = document.getElementById("fileInput");
+
+algo.onchange = () => {
+    if (algo.value === "grille") {
+        key.disabled = true;
+        key.value = '';
+        key.placeholder = "Ключ не требуется";
+    } else {
+        key.disabled = false;
+        key.placeholder = "Русские буквы";
+    }
+};
+
+fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+        input.value = e.target.result;
+        status.textContent = "📂 Файл загружен";
+    };
+    reader.readAsText(file, "UTF-8");
+};
+
+function encrypt() {
+    output.value = algo.value === "grille"
+        ? grilleEncrypt(input.value)
+        : vigenere(input.value, key.value, true);
+    status.textContent = "✅ Зашифровано";
+}
+
+function decrypt() {
+    output.value = algo.value === "grille"
+        ? grilleDecrypt(input.value)
+        : vigenere(input.value, key.value, false);
+    status.textContent = "✅ Расшифровано";
+}
+
+function saveResult() {
+    const blob = new Blob([output.value], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "result.txt";
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function clearAll() {
+    input.value = output.value = '';
+    fileInput.value = '';
+    status.textContent = "🧹 Очищено";
+}
+</script>
+</body>
+</html>
