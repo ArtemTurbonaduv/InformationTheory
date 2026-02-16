@@ -229,6 +229,7 @@ function grilleDecrypt(text) {
     return result;
 }
 
+
 // ===== ВИЖЕНЕР =====
 const RUS = /[А-ЯЁ]/;
 const alpha = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
@@ -246,8 +247,8 @@ function vigenere(text, key, enc) {
         return "";
     }
 
-    let k = 0;
     let res = '';
+    let i = 0; // номер зашифрованной буквы
 
     for (let c of text) {
         if (!RUS.test(c)) {
@@ -255,15 +256,25 @@ function vigenere(text, key, enc) {
             continue;
         }
 
-        let i = alpha.indexOf(c);
-        let s = alpha.indexOf(key[k % key.length]);
-        let x = enc
-            ? (i + s) % 33
-            : (i - s + 33) % 33;
+        const textIndex = alpha.indexOf(c);
 
-        res += alpha[x];
-        k++;
+        const keyIndex = alpha.indexOf(
+            key[i % key.length]
+        );
+
+        // СКОЛЬКО РАЗ КЛЮЧ УЖЕ ПРОШЛИ ПОЛНОСТЬЮ
+        const prog = Math.floor(i / key.length);
+
+        const shift = (keyIndex + prog) % 33;
+
+        const resultIndex = enc
+            ? (textIndex + shift) % 33
+            : (textIndex - shift + 33) % 33;
+
+        res += alpha[resultIndex];
+        i++;
     }
+
     return res;
 }
 
