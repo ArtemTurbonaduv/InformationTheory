@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LFSR Шифрование и Дешифрование</title>
+  </head>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 0 20px;
+      background: #f4f4f9;
+      color: #333;
+    }
+    .container {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 1.2em;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+    }
+    h3 {
+      font-size: 1em;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+    textarea,
+    input[type="text"],
+    input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 1em;
+    }
+    input.invalid {
+      border-color: red;
+    }
+    .error {
+      color: red;
+      font-size: 0.9em;
+      margin-top: 5px;
+      min-height: 1.2em;
+    }
+    button {
+      background: #ff0000;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+      font-size: 1em;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #ca0000;
+    }
+    #downloadButton {
+      background: #28a745;
+      margin-left: 10px;
+      display: none;
+    }
+    #downloadButton:hover {
+      background: #218838;
+    }
+    .output-box {
+      background: #1e1e1e;
+      color: #ef26f6;
+      font-family: "Courier New", monospace;
+      padding: 15px;
+      border-radius: 4px;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+      height: 150px;
+      overflow-y: auto;
+      line-height: 1.5;
+      margin-top: 5px;
+    }
+  </style>
+
+  <body>
+    <div class="container">
+      <h2>1. Исходные данные</h2>
+      <textarea
+        id="textInput"
+        rows="3"
+        placeholder="Введите текст..."></textarea>
+      <input type="file" id="fileInput" />
+      <div id="output" class="output-box">
+        Здесь появятся биты исходных данных
+      </div>
+    </div>
+
+    <div class="container">
+      <h2>2. Ключ</h2>
+      <input
+        type="text"
+        id="keyInput"
+        placeholder="Введите 34 бит (состоит только из 0 и 1)"
+        maxlength="34" />
+      <div id="registerError" class="error"></div>
+    </div>
+
+    <div class="container">
+      <h2>3. Управление</h2>
+
+      <button id="generateKeyButton">XOR</button>
+      <button id="downloadButton">Скачать</button>
+
+      <h3>Сгенерированный ключ</h3>
+      <div id="lfsrKeyOutput" class="output-box">
+        Здесь появятся биты сгенерированного ключа
+      </div>
+
+      <h3>Результат</h3>
+      <div id="key" class="output-box">
+        Здесь появятся биты результата
+        </div>
+  </body>
+
+  <script>
+    const textInput = document.getElementById("textInput");
+    const fileInput = document.getElementById("fileInput");
+    const passwordInput = document.getElementById("keyInput");
+    const registerError = document.getElementById("registerError");
+    const output = document.getElementById("output");
+    const generateKeyButton = document.getElementById("generateKeyButton");
+    const lfsrKeyOutput = document.getElementById("lfsrKeyOutput");
+    const outputKey = document.getElementById("key");
+    const downloadButton = document.getElementById("downloadButton");
+
+    const REGISTER_LENGTH = 34;
+    const FORMULA = [1, 14, 15, 34];
+    const DISPLAY_LIMIT = 10000;
+
+    let currentSourceBytes = new Uint8Array(0);
+    let encryptedResultBytes = new Uint8Array(0);
+    let currentFileName = "data.bin";
+
+    function validateRegisterInput() {
+      const v = passwordInput.value;
+      if (v.length === 0) {
+        registerError.textContent = "";
+        passwordInput.classList.remove("invalid");
+        return true;
+      }
+      if (v.length < REGISTER_LENGTH) {
+        registerError.textContent = `Введите ровно ${REGISTER_LENGTH} символов (сейчас ${v.length}).`;
+        passwordInput.classList.add("invalid");
+        return false;
+      }
+      registerError.textContent = "";
+      passwordInput.classList.remove("invalid");
+      return true;
+    }
+
+    passwordInput.addEventListener("input", () => {
+      const filtered = passwordInput.value.replace(/[^01]/g, "");
+      if (filtered !== passwordInput.value) {
+        passwordInput.value = filtered;
+      }
+      validateRegisterInput();
+    });
+
+    passwordInput.addEventListener("blur", validateRegisterInput);
+
+    function bytesToBitsString(bytes, totalLength = null) {
+      if (bytes.length === 0) return "";
+      let bitsString = "";
+      const lengthToProcess = Math.min(bytes.length, DISPLAY_LIMIT);
+
+      const actualTotalLength = totalLength !== null ? totalLength : bytes.length;
+
+      for (let i = 0; i < lengthToProcess; i++) {
+        bitsString += bytes[i].toString(2).padStart(8, "0") + " ";
+      }
+
+      if (actualTotalLength > DISPLAY_LIMIT) {
+        bitsString += `\n\n... [Показаны первые ${DISPLAY_LIMIT} байт из ${actualTotalLength}]`;
+      }
+      return bitsString;
+    }
+
+    function resetOutputs() {
+      downloadButton.style.display = "none";
+      lfsrKeyOutput.textContent = "Здесь появятся биты сгенерированного ключа...";
+      outputKey.textContent = "Здесь появятся биты результата...";
+      encryptedResultBytes = new Uint8Array(0);
+    }
+
+    textInput.addEventListener("input", () => {
+      const text = textInput.value;
+      const encoder = new TextEncoder();
+      currentSourceBytes = encoder.encode(text);
+      output.textContent =
+        bytesToBitsString(currentSourceBytes) ||
+        "Здесь появятся биты исходных данных...";
+
+      currentFileName = "encrypted_text.txt.enc";
+      resetOutputs();
+
+      if (text.length > 0) fileInput.value = "";
+    });
+
+    fileInput.addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      textInput.value = "";
+      output.textContent = "Чтение файла...";
+      resetOutputs();
+
+      if (file.name.endsWith(".enc")) {
+        currentFileName = file.name.replace(".enc", "");
+      } else {
+        currentFileName = file.name + ".enc";
+      }
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        currentSourceBytes = new Uint8Array(arrayBuffer);
+        output.textContent = bytesToBitsString(currentSourceBytes);
+      } catch (err) {
+        output.textContent = "Ошибка при чтении файла: " + err.message;
+        currentSourceBytes = new Uint8Array(0);
+      }
+    });
+
+    function encrypt(sourceBytes, initialKey) {
+      const len = sourceBytes.length;
+      const result = new Uint8Array(len);
+      const state = Array.from(initialKey, (char) => (char === "1" ? 1 : 0));
+
+      const keyPreviewLength = Math.min(len, DISPLAY_LIMIT);
+      const keyPreviewBytes = new Uint8Array(keyPreviewLength);
+
+      for (let i = 0; i < len; i++) {
+        let generatedKeyByte = 0;
+
+        for (let b = 0; b < 8; b++) {
+          let xor = 0;
+          for (let j = 0; j < FORMULA.length; j++) {
+            xor ^= state[state.length - FORMULA[j]];
+          }
+
+          generatedKeyByte |= state[0] << (7 - b);
+
+          state.shift();
+          state.push(xor);
+        }
+
+        if (i < keyPreviewLength) {
+          keyPreviewBytes[i] = generatedKeyByte;
+        }
+
+        result[i] = sourceBytes[i] ^ generatedKeyByte;
+      }
+
+      return { result, keyPreviewBytes };
+    }
+
+    generateKeyButton.addEventListener("click", () => {
+      const key = passwordInput.value;
+
+      if (currentSourceBytes.length === 0) {
+        outputKey.textContent = "Сначала введите текст или выберите файл.";
+        return;
+      }
+      if (key.length !== REGISTER_LENGTH) {
+        outputKey.textContent = `Ключ должен быть ровно ${REGISTER_LENGTH} символов.`;
+        return;
+      }
+
+      outputKey.textContent = "Выполнение... Подождите.";
+      lfsrKeyOutput.textContent = "Генерация...";
+      downloadButton.style.display = "none";
+
+      setTimeout(() => {
+        const { result, keyPreviewBytes } = encrypt(currentSourceBytes, key);
+        encryptedResultBytes = result;
+
+        lfsrKeyOutput.textContent = bytesToBitsString(
+          keyPreviewBytes,
+          currentSourceBytes.length,
+        );
+        outputKey.textContent = bytesToBitsString(encryptedResultBytes);
+        downloadButton.style.display = "inline-block";
+      }, 10);
+    });
+
+    downloadButton.addEventListener("click", () => {
+      if (encryptedResultBytes.length === 0) return;
+
+      const blob = new Blob([encryptedResultBytes], {
+        type: "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = currentFileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  </script>
+
+</html>
