@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Эль-Гамаль</title>
+
+<style>
+body {
+    font-family: Arial;
+    background: #1e1e2f;
+    color: white;
+    padding: 20px;
+}
+
+.container {
+    display: flex;
+    gap: 20px;
+}
+
+.panel {
+    flex: 1;
+    background: #2b2b40;
+    padding: 15px;
+    border-radius: 10px;
+}
+
+input, select, button {
+    margin: 5px 0;
+    padding: 6px;
+    border-radius: 5px;
+    border: none;
+    width: 100%;
+}
+
+button {
+    background: #4fc3f7;
+    cursor: pointer;
+}
+
+.output {
+    background: #111;
+    height: 150px;
+    overflow: auto;
+    padding: 10px;
+    white-space: pre-wrap;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Эль-Гамаль</h2>
+
+<div class="container">
+
+<!-- ===== ШИФРОВАНИЕ ===== -->
+<div class="panel">
+<h3>Шифрование</h3>
+
+p: <input id="p_enc" type="number">
+x: <input id="x_enc" type="number">
+k: <input id="k_enc" type="number">
+
+<button onclick="findRoots()">Найти g</button>
+
+g: <select id="g_enc"></select>
+
+<input type="file" id="file_enc">
+
+<button onclick="encrypt()">Зашифровать</button>
+<button onclick="downloadEnc()">Скачать зашифрованный файл</button>
+
+<div id="out_enc" class="output"></div>
+</div>
+
+<!-- ===== ДЕШИФРОВАНИЕ ===== -->
+<div class="panel">
+<h3>Дешифрование</h3>
+
+p: <input id="p_dec" type="number">
+x: <input id="x_dec" type="number">
+
+<input type="file" id="file_dec">
+
+<button onclick="decrypt()">Дешифровать</button>
+<button onclick="downloadDec()">Скачать расшифрованный файл</button>
+
+<div id="out_dec" class="output"></div>
+</div>
+
+</div>
+
+<script>
+// ===== МАТЕМАТИКА =====
+
+function gcd(a,b){while(b){[a,b]=[b,a%b]}return a;}
+
+function modPow(base, exp, mod){
+    let res = 1;
+    base %= mod;
+    while(exp > 0){
+        if(exp & 1) res = (res * base) % mod;
+        base = (base * base) % mod;
+        exp >>= 1;
+    }
+    return res;
+}
+
+function isPrime(n){
+    if(n<2) return false;
+    for(let i=2;i*i<=n;i++)
+        if(n%i===0) return false;
+    return true;
+}
+
+function factorize(n){
+    let f=new Set();
+    for(let i=2;i*i<=n;i++){
+        if(n%i===0){
+            f.add(i);
+            while(n%i===0) n/=i;
+        }
+    }
+    if(n>1) f.add(n);
+    return [...f];
+}
+
+// ===== ВАЛИДАЦИЯ =====
+
+function validateInputs(p,x,k){
+    if(!isPrime(p)) return "p не простое";
+    if(p<256 || p>65536) return "p должно быть в диапазоне [256; 65536]";
+    if(x<=1||x>=p-1) return "x вне диапазона";
+    if(k<=1||k>=p-1) return "k вне диапазона";
+    if(gcd(k,p-1)!==1) return "k не взаимно просто с p-1";
+    return null;
+}
+
+// ===== ПЕРВООБРАЗНЫЕ =====
+
+function isPrimitive(g,p,factors){
+    for(let q of factors){
+        if(modPow(g,(p-1)/q,p)===1) return false;
+    }
+    return true;
+}
+
+function findRoots(){
+    let p=+p_enc.value;
+    let x=+x_enc.value;
+    let k=+k_enc.value;
+
+    let err=validateInputs(p,x,k);
+    if(err){alert(err);return;}
+
+    let factors=factorize(p-1);
+    let roots=[];
+
+    for(let g=2;g<p;g++)
+        if(isPrimitive(g,p,factors)) roots.push(g);
+
+    g_enc.innerHTML="";
+    roots.forEach(v=>{
+        let o=document.createElement("option");
+        o.value=v; o.text=v;
+        g_enc.appendChild(o);
+    });
+
+    logEnc("g: "+roots.join(", "));
+}
+
+// ===== ГЕНЕРАЦИЯ k =====
+
+function genK(p){
+    let k;
+    do{
+        k=Math.floor(Math.random()*(p-3))+2;
+    }while(gcd(k,p-1)!==1);
+    return k;
+}
+
+// ===== ШИФРОВАНИЕ =====
+
+let encBuffer=null;
+
+async function encrypt(){
+    let p=+p_enc.value;
+    let x=+x_enc.value;
+    let k0=+k_enc.value;
+    let g=+g_enc.value;
+
+    let file=file_enc.files[0];
+    if(!file){alert("файл");return;}
+
+    let data=new Uint8Array(await file.arrayBuffer());
+    let y=modPow(g,x,p);
+
+    let out=[];
+    let nums=[];
+
+    for(let i=0;i<data.length;i++){
+        let m=data[i];
+
+        let k=(i===0)?k0:genK(p);
+
+        let a=modPow(g,k,p);
+        let b=(modPow(y,k,p)*m)%p;
+
+        out.push(a,b);
+        nums.push(a,b);
+    }
+
+    // запись в буфер
+    encBuffer=new Uint8Array(out.length*2);
+    let dv=new DataView(encBuffer.buffer);
+
+    out.forEach((v,i)=>dv.setUint16(i*2,v));
+
+    ClearLogEnc();
+    logEnc("y: "+  y);
+    logEnc(nums.slice(0, 200).join(" ") + " ...");
+}
+
+// ===== ДЕШИФРОВАНИЕ =====
+
+let decBuffer=null;
+
+async function decrypt(){
+    let p=+p_dec.value;
+    let x=+x_dec.value;
+
+    let file=file_dec.files[0];
+    if(!file){alert("файл");return;}
+
+    let buf=new Uint8Array(await file.arrayBuffer());
+    let dv=new DataView(buf.buffer);
+
+    let res=[];
+
+    for(let i=0;i<buf.length;i+=4){
+        let a=dv.getUint16(i);
+        let b=dv.getUint16(i+2);
+
+        let m=(b*modPow(a,p-1-x,p))%p;
+        res.push(m);
+    }
+
+    decBuffer=new Uint8Array(res);
+    ClearLogDec();
+    logDec("Готово");
+}
+
+// ===== СКАЧИВАНИЕ =====
+
+function downloadEnc(){
+    if(!encBuffer) return alert("нет данных");
+    download(encBuffer,"encrypted.bin");
+}
+
+function downloadDec(){
+    if(!decBuffer) return alert("нет данных");
+    download(decBuffer,"decrypted.bin");
+}
+
+function download(data,name){
+    let a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([data]));
+    a.download=name;
+    a.click();
+}
+
+// ===== UI =====
+
+function logEnc(t){out_enc.textContent+=t+"\n";}
+function ClearLogEnc(){out_enc.textContent=""}
+function logDec(t){out_dec.textContent+=t+"\n";}
+function ClearLogDec(){out_dec.textContent=""}
+
+</script>
+
+</body>
+</html>
